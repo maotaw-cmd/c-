@@ -159,6 +159,10 @@ struct UiState
     int settingFor = 0;
     int hitboxes = 0;
     int priority = 0;
+
+    // Collapsible sidebar groups.
+    bool aimBotExpanded = true;
+    bool visualsExpanded = false;
 };
 
 class Application
@@ -270,7 +274,8 @@ private:
         const wchar_t* icon,
         const std::wstring& text,
         float y,
-        bool hasArrow = false);
+        bool hasArrow = false,
+        bool expanded = false);
     void DrawSubNavRow(Page page, const std::wstring& text, float y);
 
     bool Toggle(
@@ -712,28 +717,28 @@ void Application::DrawLogo(float x, float y)
         D2D1::Point2F(x + 15.0f, y + 8.0f),
         D2D1::Point2F(x + 25.0f, y + 15.0f),
         D2D1::Point2F(x + 10.0f, y + 32.0f)
-        }, logoColor);
+    }, logoColor);
 
     FillPolygon({
         D2D1::Point2F(x + 12.0f, y + 36.0f),
         D2D1::Point2F(x + 35.0f, y + 8.0f),
         D2D1::Point2F(x + 45.0f, y + 15.0f),
         D2D1::Point2F(x + 23.0f, y + 43.0f)
-        }, logoColor);
+    }, logoColor);
 
     FillPolygon({
         D2D1::Point2F(x + 26.0f, y + 46.0f),
         D2D1::Point2F(x + 55.0f, y + 13.0f),
         D2D1::Point2F(x + 65.0f, y + 20.0f),
         D2D1::Point2F(x + 38.0f, y + 53.0f)
-        }, logoColor);
+    }, logoColor);
 
     FillPolygon({
         D2D1::Point2F(x + 9.0f, y + 31.0f),
         D2D1::Point2F(x + 36.0f, y + 53.0f),
         D2D1::Point2F(x + 29.0f, y + 63.0f),
         D2D1::Point2F(x + 0.0f, y + 39.0f)
-        }, logoColor);
+    }, logoColor);
 }
 
 void Application::DrawBackground(float width, float height)
@@ -774,21 +779,21 @@ void Application::DrawBackground(float width, float height)
         D2D1::Point2F(77.0f, 97.0f),
         D2D1::Point2F(115.0f, 121.0f),
         D2D1::Point2F(36.0f, 219.0f)
-        }, ColorFromHex(0x3A1011, 0.35f));
+    }, ColorFromHex(0x3A1011, 0.35f));
 
     FillPolygon({
         D2D1::Point2F(131.0f, 252.0f),
         D2D1::Point2F(247.0f, 177.0f),
         D2D1::Point2F(247.0f, 299.0f),
         D2D1::Point2F(168.0f, 343.0f)
-        }, ColorFromHex(0x5B1216, 0.22f));
+    }, ColorFromHex(0x5B1216, 0.22f));
 
     FillPolygon({
         D2D1::Point2F(0.0f, 506.0f),
         D2D1::Point2F(95.0f, 430.0f),
         D2D1::Point2F(143.0f, 493.0f),
         D2D1::Point2F(52.0f, 620.0f)
-        }, ColorFromHex(0x2D0D10, 0.45f));
+    }, ColorFromHex(0x2D0D10, 0.45f));
 
     // Dark overlay makes the red artwork subtle, like the reference image.
     FillRect(0.0f, 0.0f, Layout::SidebarWidth, height, Theme::SidebarShade);
@@ -819,7 +824,8 @@ void Application::DrawNavRow(
     const wchar_t* icon,
     const std::wstring& text,
     float y,
-    bool hasArrow)
+    bool hasArrow,
+    bool expanded)
 {
     const bool selected = state_.page == page;
     const bool hovered = Hover(24.0f, y, 224.0f, y + 34.0f);
@@ -849,7 +855,7 @@ void Application::DrawNavRow(
     if (hasArrow)
     {
         DrawIcon(
-            Glyphs::ChevronDown,
+            expanded ? Glyphs::ChevronDown : Glyphs::ChevronRight,
             199.0f,
             y,
             20.0f,
@@ -884,17 +890,61 @@ void Application::DrawSubNavRow(Page page, const std::wstring& text, float y)
 
 void Application::DrawNavigation(float height)
 {
-    DrawNavRow(Page::Ragebot, Glyphs::Aim, L"AimBot", 128.0f, true);
-    DrawSubNavRow(Page::Ragebot, L"Ragebot", 164.0f);
-    DrawSubNavRow(Page::AntiAim, L"Anti aim", 196.0f);
-    DrawSubNavRow(Page::Legitbot, L"Legitbot", 228.0f);
+    float y = 128.0f;
 
-    DrawNavRow(Page::Visuals, Glyphs::Eye, L"Visuals", 274.0f, true);
-    DrawNavRow(Page::Misc, Glyphs::More, L"Misc", 314.0f, false);
-    DrawNavRow(Page::Skins, Glyphs::Palette, L"Skins", 354.0f, false);
-    DrawNavRow(Page::Scripts, Glyphs::Code, L"Scripts", 394.0f, false);
-    DrawNavRow(Page::Settings, Glyphs::Settings, L"Settings", 434.0f, false);
-    DrawNavRow(Page::Hotkeys, Glyphs::Link, L"Hotkeys", 474.0f, false);
+    DrawNavRow(
+        Page::Ragebot,
+        Glyphs::Aim,
+        L"AimBot",
+        y,
+        true,
+        state_.aimBotExpanded);
+
+    y += 36.0f;
+
+    if (state_.aimBotExpanded)
+    {
+        DrawSubNavRow(Page::Ragebot, L"Ragebot", y);
+        y += 32.0f;
+        DrawSubNavRow(Page::AntiAim, L"Anti aim", y);
+        y += 32.0f;
+        DrawSubNavRow(Page::Legitbot, L"Legitbot", y);
+        y += 42.0f;
+    }
+    else
+    {
+        y += 10.0f;
+    }
+
+    DrawNavRow(
+        Page::Visuals,
+        Glyphs::Eye,
+        L"Visuals",
+        y,
+        true,
+        state_.visualsExpanded);
+
+    y += 36.0f;
+
+    if (state_.visualsExpanded)
+    {
+        DrawSubNavRow(Page::Visuals, L"General", y);
+        y += 42.0f;
+    }
+    else
+    {
+        y += 10.0f;
+    }
+
+    DrawNavRow(Page::Misc, Glyphs::More, L"Misc", y, false);
+    y += 40.0f;
+    DrawNavRow(Page::Skins, Glyphs::Palette, L"Skins", y, false);
+    y += 40.0f;
+    DrawNavRow(Page::Scripts, Glyphs::Code, L"Scripts", y, false);
+    y += 40.0f;
+    DrawNavRow(Page::Settings, Glyphs::Settings, L"Settings", y, false);
+    y += 40.0f;
+    DrawNavRow(Page::Hotkeys, Glyphs::Link, L"Hotkeys", y, false);
 
     DrawLine(31.0f, height - 96.0f, 217.0f, height - 96.0f, ColorFromHex(0x8B3A36, 0.40f), 1.0f);
 
@@ -1420,42 +1470,92 @@ void Application::Render()
 
 void Application::HandleSidebarClick(float x, float y)
 {
-    if (PointInside(x, y, 24.0f, 128.0f, 224.0f, 162.0f) ||
-        PointInside(x, y, 55.0f, 164.0f, 219.0f, 195.0f))
+    float rowY = 128.0f;
+
+    // AimBot group header: expand/collapse only.
+    if (PointInside(x, y, 24.0f, rowY, 224.0f, rowY + 34.0f))
     {
-        state_.page = Page::Ragebot;
+        state_.aimBotExpanded = !state_.aimBotExpanded;
+        activeSlider_.clear();
+        openCombo_.clear();
+        return;
     }
-    else if (PointInside(x, y, 55.0f, 196.0f, 219.0f, 227.0f))
+
+    rowY += 36.0f;
+
+    if (state_.aimBotExpanded)
     {
-        state_.page = Page::AntiAim;
+        if (PointInside(x, y, 55.0f, rowY, 219.0f, rowY + 31.0f))
+        {
+            state_.page = Page::Ragebot;
+            return;
+        }
+        rowY += 32.0f;
+
+        if (PointInside(x, y, 55.0f, rowY, 219.0f, rowY + 31.0f))
+        {
+            state_.page = Page::AntiAim;
+            return;
+        }
+        rowY += 32.0f;
+
+        if (PointInside(x, y, 55.0f, rowY, 219.0f, rowY + 31.0f))
+        {
+            state_.page = Page::Legitbot;
+            return;
+        }
+        rowY += 42.0f;
     }
-    else if (PointInside(x, y, 55.0f, 228.0f, 219.0f, 259.0f))
+    else
     {
-        state_.page = Page::Legitbot;
+        rowY += 10.0f;
     }
-    else if (PointInside(x, y, 24.0f, 274.0f, 224.0f, 308.0f))
+
+    // Visuals group header: expand/collapse only.
+    if (PointInside(x, y, 24.0f, rowY, 224.0f, rowY + 34.0f))
     {
-        state_.page = Page::Visuals;
+        state_.visualsExpanded = !state_.visualsExpanded;
+        activeSlider_.clear();
+        openCombo_.clear();
+        return;
     }
-    else if (PointInside(x, y, 24.0f, 314.0f, 224.0f, 348.0f))
+
+    rowY += 36.0f;
+
+    if (state_.visualsExpanded)
     {
-        state_.page = Page::Misc;
+        if (PointInside(x, y, 55.0f, rowY, 219.0f, rowY + 31.0f))
+        {
+            state_.page = Page::Visuals;
+            return;
+        }
+        rowY += 42.0f;
     }
-    else if (PointInside(x, y, 24.0f, 354.0f, 224.0f, 388.0f))
+    else
     {
-        state_.page = Page::Skins;
+        rowY += 10.0f;
     }
-    else if (PointInside(x, y, 24.0f, 394.0f, 224.0f, 428.0f))
+
+    const struct
     {
-        state_.page = Page::Scripts;
-    }
-    else if (PointInside(x, y, 24.0f, 434.0f, 224.0f, 468.0f))
+        Page page;
+        float y;
+    } rows[] =
     {
-        state_.page = Page::Settings;
-    }
-    else if (PointInside(x, y, 24.0f, 474.0f, 224.0f, 508.0f))
+        { Page::Misc, rowY },
+        { Page::Skins, rowY + 40.0f },
+        { Page::Scripts, rowY + 80.0f },
+        { Page::Settings, rowY + 120.0f },
+        { Page::Hotkeys, rowY + 160.0f }
+    };
+
+    for (const auto& row : rows)
     {
-        state_.page = Page::Hotkeys;
+        if (PointInside(x, y, 24.0f, row.y, 224.0f, row.y + 34.0f))
+        {
+            state_.page = row.page;
+            break;
+        }
     }
 
     activeSlider_.clear();
