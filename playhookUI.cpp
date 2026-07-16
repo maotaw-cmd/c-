@@ -44,6 +44,8 @@
 #pragma message("PARTICLE_BACKGROUND_SETTING_ACTIVE")
 #pragma message("ESP_CARD_MULTI_COLOR_CONTROLS_ACTIVE")
 #pragma message("REAL_CONFIG_SAVE_LOAD_DELETE_V6")
+#pragma message("DROPDOWN_NULL_POINTER_CRASH_FIXED_V7")
+#pragma message("HOTKEY_COMBINATIONS_CTRL_ALT_SHIFT_V8")
 
 template <typename T>
 static void SafeRelease(T*& value)
@@ -141,6 +143,12 @@ namespace UI
     constexpr D2D1_COLOR_F ScrollTrack = { 0.075f, 0.075f, 0.090f, 1.0f };
 }
 
+
+constexpr int HotkeyKeyMask   = 0x00FF;
+constexpr int HotkeyCtrlFlag  = 0x0100;
+constexpr int HotkeyAltFlag   = 0x0200;
+constexpr int HotkeyShiftFlag = 0x0400;
+
 struct State
 {
     bool overrideShared = true;
@@ -191,7 +199,7 @@ struct State
     // Editable virtual-key hotkeys.
     int enabledHotkey = VK_INSERT;
     int forceShotHotkey = VK_XBUTTON1;
-    int damageOverrideHotkey = VK_MENU;
+    int damageOverrideHotkey = HotkeyAltFlag | 'X';
     int doubletapHotkey = 0;
     int nospreadHotkey = 'N';
     int moveOverrideHotkey = 'F';
@@ -273,9 +281,9 @@ private:
     void SetColor(D2D1_COLOR_F color);
     void Fill(float left, float top, float right, float bottom, D2D1_COLOR_F color);
     void Stroke(float left, float top, float right, float bottom,
-        D2D1_COLOR_F color, float width = 1.0f);
+                D2D1_COLOR_F color, float width = 1.0f);
     void Line(float x1, float y1, float x2, float y2,
-        D2D1_COLOR_F color, float width = 1.0f);
+              D2D1_COLOR_F color, float width = 1.0f);
     void DrawTextLine(
         const std::wstring& text,
         float x,
@@ -301,34 +309,37 @@ private:
 
     void Panel(float x, float logicalY, float width, float height, const wchar_t* title);
     void Checkbox(float x, float logicalY, const wchar_t* label,
-        bool& value, int* bindKey = nullptr);
+                  bool& value, int* bindKey = nullptr);
     void Dropdown(float x, float logicalY, float width,
-        const wchar_t* label,
-        const std::vector<std::wstring>& values,
-        int& selected,
-        int dropdownId);
+                  const wchar_t* label,
+                  const std::vector<std::wstring>& values,
+                  int& selected,
+                  int dropdownId);
     void DrawDropdownOverlay();
     void Slider(float x, float logicalY, float width,
-        const wchar_t* label,
-        int& value,
-        int minimum,
-        int maximum,
-        const wchar_t* suffix,
-        int sliderId);
+                const wchar_t* label,
+                int& value,
+                int minimum,
+                int maximum,
+                const wchar_t* suffix,
+                int sliderId);
     void StaticValue(float x, float logicalY, float width,
-        const wchar_t* label, const wchar_t* value);
+                     const wchar_t* label, const wchar_t* value);
     void HotkeyValue(float x, float logicalY, float width,
-        const wchar_t* label, int& key);
-    std::wstring KeyName(int virtualKey) const;
+                     const wchar_t* label, int& key);
+    std::wstring KeyName(int encodedHotkey) const;
+    std::wstring BaseKeyName(int virtualKey) const;
+    int EncodeHotkey(int virtualKey) const;
+    bool IsModifierKey(int virtualKey) const;
     bool Button(float x, float logicalY, float width,
-        const wchar_t* label, bool accent = false);
+                const wchar_t* label, bool accent = false);
     void TextInput(float x, float logicalY, float width,
-        const wchar_t* label, std::wstring& value);
+                   const wchar_t* label, std::wstring& value);
     void ColorSwatchRow(float x, float logicalY, float width,
-        const wchar_t* label, D2D1_COLOR_F& color);
+                        const wchar_t* label, D2D1_COLOR_F& color);
     void ToggleColorRow(float x, float logicalY, float width,
-        const wchar_t* label, bool& enabled,
-        D2D1_COLOR_F& color);
+                        const wchar_t* label, bool& enabled,
+                        D2D1_COLOR_F& color);
     void OpenColorPicker(D2D1_COLOR_F& color);
     void DrawColorPicker();
     void UpdatePickerColorFromHsv();
@@ -362,28 +373,28 @@ bool Application::Initialize(HINSTANCE instance)
     }
 
     auto createFont = [&](float size,
-        DWRITE_FONT_WEIGHT weight,
-        IDWriteTextFormat** output)
+                          DWRITE_FONT_WEIGHT weight,
+                          IDWriteTextFormat** output)
+    {
+        HRESULT result = writeFactory_->CreateTextFormat(
+            L"Tahoma",
+            nullptr,
+            weight,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            size,
+            L"en-US",
+            output);
+
+        if (SUCCEEDED(result))
         {
-            HRESULT result = writeFactory_->CreateTextFormat(
-                L"Tahoma",
-                nullptr,
-                weight,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                size,
-                L"en-US",
-                output);
+            (*output)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            (*output)->SetParagraphAlignment(
+                DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
 
-            if (SUCCEEDED(result))
-            {
-                (*output)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                (*output)->SetParagraphAlignment(
-                    DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            }
-
-            return result;
-        };
+        return result;
+    };
 
     if (FAILED(createFont(
         12.0f,
@@ -619,15 +630,15 @@ bool Application::Clicked(
     float bottom) const
 {
     return !colorPickerOpen_ &&
-        mousePressed_ &&
-        Hover(left, top, right, bottom);
+           mousePressed_ &&
+           Hover(left, top, right, bottom);
 }
 
 float Application::ContentY(float logicalY) const
 {
     return UI::HeaderHeight +
-        logicalY -
-        scrollOffset_;
+           logicalY -
+           scrollOffset_;
 }
 
 void Application::DrawParticleBackground()
@@ -727,7 +738,7 @@ void Application::DrawHeader()
         1.0f);
 
     DrawTextLine(
-        settingsOpen_ ? L"Configuration" : L"PlayHooked",
+        settingsOpen_ ? L"Configuration - HOTKEY COMBO FIX V8" : L"PlayHooked - HOTKEY COMBO FIX V8",
         10.0f,
         0.0f,
         170.0f,
@@ -790,10 +801,10 @@ void Application::DrawHeader()
         gearLeft + 10.0f,
         16.5f,
         settingsOpen_
-        ? UI::Accent
-        : (gearHover
-            ? UI::Text
-            : UI::Muted));
+            ? UI::Accent
+            : (gearHover
+                ? UI::Text
+                : UI::Muted));
 
     Line(
         closeLeft + 5.0f,
@@ -801,8 +812,8 @@ void Application::DrawHeader()
         closeLeft + 13.0f,
         19.0f,
         closeHover
-        ? UI::Text
-        : UI::Muted,
+            ? UI::Text
+            : UI::Muted,
         1.3f);
 
     Line(
@@ -811,8 +822,8 @@ void Application::DrawHeader()
         closeLeft + 5.0f,
         19.0f,
         closeHover
-        ? UI::Text
-        : UI::Muted,
+            ? UI::Text
+            : UI::Muted,
         1.3f);
 
     if (Clicked(
@@ -956,7 +967,7 @@ void Application::Checkbox(
         }
 
         DrawTextLine(
-            capturing ? L"[press key]" : (L"[" + KeyName(*bindKey) + L"]"),
+            capturing ? L"[hold modifiers + key]" : (L"[" + KeyName(*bindKey) + L"]"),
             bindLeft + 3.0f,
             y,
             bindRight - bindLeft - 6.0f,
@@ -1033,8 +1044,8 @@ void Application::Dropdown(
         x + width,
         boxY + boxHeight,
         hover
-        ? UI::ControlHover
-        : UI::Control);
+            ? UI::ControlHover
+            : UI::Control);
 
     Stroke(
         x,
@@ -1042,10 +1053,10 @@ void Application::Dropdown(
         x + width,
         boxY + boxHeight,
         openDropdown_ == dropdownId
-        ? UI::Accent
-        : (hover
-            ? ColorFromHex(0x5D2B78)
-            : UI::PanelBorder),
+            ? UI::Accent
+            : (hover
+                ? ColorFromHex(0x5D2B78)
+                : UI::PanelBorder),
         1.0f);
 
     DrawTextLine(
@@ -1082,9 +1093,11 @@ void Application::Dropdown(
 void Application::DrawDropdownOverlay()
 {
     if (openDropdown_ < 0 ||
-        !openDropdownSelection_ ||
+        openDropdownSelection_ == nullptr ||
         openDropdownValues_.empty())
     {
+        openDropdown_ = -1;
+        openDropdownSelection_ = nullptr;
         return;
     }
 
@@ -1112,8 +1125,8 @@ void Application::DrawDropdownOverlay()
         1.0f);
 
     for (std::size_t index = 0;
-        index < openDropdownValues_.size();
-        ++index)
+         index < openDropdownValues_.size();
+         ++index)
     {
         const float itemTop =
             dropdownY_ +
@@ -1137,8 +1150,18 @@ void Application::DrawDropdownOverlay()
                 UI::ControlHover);
         }
 
-        if (static_cast<int>(index) ==
-            *openDropdownSelection_)
+        // Cache the selected value before any click can close the popup.
+        // This prevents dereferencing a null pointer later in this loop.
+        const int selectedIndex =
+            openDropdownSelection_
+                ? *openDropdownSelection_
+                : -1;
+
+        const bool selected =
+            static_cast<int>(index) ==
+            selectedIndex;
+
+        if (selected)
         {
             Fill(
                 dropdownX_ + 1.0f,
@@ -1154,19 +1177,25 @@ void Application::DrawDropdownOverlay()
             itemTop,
             dropdownWidth_ - 16.0f,
             itemHeight,
-            static_cast<int>(index) ==
-            *openDropdownSelection_
-            ? UI::AccentHover
-            : UI::Text,
+            selected
+                ? UI::AccentHover
+                : UI::Text,
             smallFont_);
 
-        if (hover && mousePressed_)
+        if (hover &&
+            mousePressed_ &&
+            openDropdownSelection_)
         {
             *openDropdownSelection_ =
                 static_cast<int>(index);
 
             openDropdown_ = -1;
             openDropdownSelection_ = nullptr;
+            openDropdownValues_.clear();
+
+            // Stop immediately. Continuing the loop after clearing the
+            // pointer/vector caused the dropdown-selection crash.
+            return;
         }
     }
 }
@@ -1243,7 +1272,7 @@ void Application::Slider(
     {
         float amount =
             (static_cast<float>(mouse_.x) -
-                trackX) /
+             trackX) /
             trackWidth;
 
         amount =
@@ -1298,8 +1327,8 @@ void Application::Slider(
         trackY + 5.0f,
         trackHover ||
         activeSlider_ == sliderId
-        ? UI::AccentHover
-        : UI::Accent);
+            ? UI::AccentHover
+            : UI::Accent);
 }
 
 void Application::StaticValue(
@@ -1332,7 +1361,36 @@ void Application::StaticValue(
         DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
-std::wstring Application::KeyName(int virtualKey) const
+bool Application::IsModifierKey(int virtualKey) const
+{
+    return virtualKey == VK_CONTROL ||
+           virtualKey == VK_LCONTROL ||
+           virtualKey == VK_RCONTROL ||
+           virtualKey == VK_MENU ||
+           virtualKey == VK_LMENU ||
+           virtualKey == VK_RMENU ||
+           virtualKey == VK_SHIFT ||
+           virtualKey == VK_LSHIFT ||
+           virtualKey == VK_RSHIFT;
+}
+
+int Application::EncodeHotkey(int virtualKey) const
+{
+    int encoded = virtualKey & HotkeyKeyMask;
+
+    if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+        encoded |= HotkeyCtrlFlag;
+
+    if ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
+        encoded |= HotkeyAltFlag;
+
+    if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+        encoded |= HotkeyShiftFlag;
+
+    return encoded;
+}
+
+std::wstring Application::BaseKeyName(int virtualKey) const
 {
     if (virtualKey == 0)
         return L"None";
@@ -1344,9 +1402,6 @@ std::wstring Application::KeyName(int virtualKey) const
     case VK_MBUTTON: return L"Mouse 3";
     case VK_XBUTTON1: return L"Mouse 4";
     case VK_XBUTTON2: return L"Mouse 5";
-    case VK_MENU: return L"Alt";
-    case VK_CONTROL: return L"Ctrl";
-    case VK_SHIFT: return L"Shift";
     case VK_INSERT: return L"Insert";
     case VK_DELETE: return L"Delete";
     case VK_HOME: return L"Home";
@@ -1375,14 +1430,37 @@ std::wstring Application::KeyName(int virtualKey) const
 
     wchar_t name[64]{};
     if (GetKeyNameTextW(
-        static_cast<LONG>(scanCode << 16),
-        name,
-        static_cast<int>(std::size(name))) > 0)
+            static_cast<LONG>(scanCode << 16),
+            name,
+            static_cast<int>(std::size(name))) > 0)
     {
         return name;
     }
 
     return L"Key " + std::to_wstring(virtualKey);
+}
+
+std::wstring Application::KeyName(int encodedHotkey) const
+{
+    const int virtualKey =
+        encodedHotkey & HotkeyKeyMask;
+
+    if (virtualKey == 0)
+        return L"None";
+
+    std::wstring result;
+
+    if ((encodedHotkey & HotkeyCtrlFlag) != 0)
+        result += L"Ctrl+";
+
+    if ((encodedHotkey & HotkeyAltFlag) != 0)
+        result += L"Alt+";
+
+    if ((encodedHotkey & HotkeyShiftFlag) != 0)
+        result += L"Shift+";
+
+    result += BaseKeyName(virtualKey);
+    return result;
 }
 
 void Application::HotkeyValue(
@@ -1432,7 +1510,7 @@ void Application::HotkeyValue(
     }
 
     DrawTextLine(
-        capturing ? L"[press key]" : (L"[" + KeyName(key) + L"]"),
+        capturing ? L"[hold modifiers + key]" : (L"[" + KeyName(key) + L"]"),
         fieldLeft + 4.0f,
         y,
         width * 0.42f - 8.0f,
@@ -1469,12 +1547,12 @@ bool Application::Button(
         x + width,
         y + height,
         accent
-        ? (hover
-            ? UI::AccentHover
-            : UI::Accent)
-        : (hover
-            ? UI::ControlHover
-            : UI::Control));
+            ? (hover
+                ? UI::AccentHover
+                : UI::Accent)
+            : (hover
+                ? UI::ControlHover
+                : UI::Control));
 
     Stroke(
         x,
@@ -1482,8 +1560,8 @@ bool Application::Button(
         x + width,
         y + height,
         accent
-        ? UI::AccentHover
-        : UI::PanelBorder,
+            ? UI::AccentHover
+            : UI::PanelBorder,
         1.0f);
 
     DrawTextLine(
@@ -1548,23 +1626,23 @@ void Application::TextInput(
         x + width,
         boxY + 25.0f,
         configNameFocused_
-        ? UI::Accent
-        : (hover
-            ? ColorFromHex(0x5D2B78)
-            : UI::PanelBorder),
+            ? UI::Accent
+            : (hover
+                ? ColorFromHex(0x5D2B78)
+                : UI::PanelBorder),
         1.0f);
 
     DrawTextLine(
         value.empty()
-        ? L"config name"
-        : value,
+            ? L"config name"
+            : value,
         x + 7.0f,
         boxY,
         width - 14.0f,
         25.0f,
         value.empty()
-        ? UI::Muted
-        : UI::Text,
+            ? UI::Muted
+            : UI::Text,
         smallFont_);
 }
 
@@ -1651,7 +1729,7 @@ void Application::ToggleColorRow(
     {
         Fill(x, y + 10.0f, x + checkSize, y + 20.0f, UI::Control);
         Stroke(x, y + 10.0f, x + checkSize, y + 20.0f,
-            toggleHover ? UI::Accent : UI::PanelBorder, 1.0f);
+               toggleHover ? UI::Accent : UI::PanelBorder, 1.0f);
     }
 
     DrawTextLine(
@@ -1762,7 +1840,7 @@ void Application::DrawColorPicker()
     for (int step = 0; step < hueSteps; ++step)
     {
         const float hue = static_cast<float>(step) /
-            static_cast<float>(hueSteps - 1);
+                          static_cast<float>(hueSteps - 1);
         const float top = paletteY + hueStepHeight * static_cast<float>(step);
         Fill(
             hueX,
@@ -2202,18 +2280,18 @@ void Application::DrawMainContent()
     const float espRowWidth = 220.0f;
 
     ToggleColorRow(espLeft, 526.0f, espRowWidth,
-        L"Box", state_.espBox, state_.espRectangleColor);
+                   L"Box", state_.espBox, state_.espRectangleColor);
     ToggleColorRow(espLeft, 558.0f, espRowWidth,
-        L"Health bar", state_.espHealthBar, state_.espHealthColor);
+                   L"Health bar", state_.espHealthBar, state_.espHealthColor);
     ToggleColorRow(espLeft, 590.0f, espRowWidth,
-        L"Name", state_.espName, state_.espNameColor);
+                   L"Name", state_.espName, state_.espNameColor);
 
     ToggleColorRow(espRight, 526.0f, espRowWidth,
-        L"Skeleton", state_.espSkeleton, state_.espSkeletonColor);
+                   L"Skeleton", state_.espSkeleton, state_.espSkeletonColor);
     ToggleColorRow(espRight, 558.0f, espRowWidth,
-        L"Weapon", state_.espWeapon, state_.espWeaponColor);
+                   L"Weapon", state_.espWeapon, state_.espWeaponColor);
     ToggleColorRow(espRight, 590.0f, espRowWidth,
-        L"Distance", state_.espDistance, state_.espDistanceColor);
+                   L"Distance", state_.espDistance, state_.espDistanceColor);
 }
 
 
@@ -2228,11 +2306,11 @@ std::filesystem::path Application::ConfigDirectory() const
 
     std::filesystem::path directory =
         length > 0
-        ? std::filesystem::path(appData) /
-        L"CompactPurpleMenu" /
-        L"Configs"
-        : std::filesystem::current_path() /
-        L"Configs";
+            ? std::filesystem::path(appData) /
+                  L"CompactPurpleMenu" /
+                  L"Configs"
+            : std::filesystem::current_path() /
+                  L"Configs";
 
     std::error_code error;
     std::filesystem::create_directories(
@@ -2267,14 +2345,14 @@ std::wstring Application::SanitizeConfigName(
     }
 
     while (!clean.empty() &&
-        (clean.front() == L' ' ||
+           (clean.front() == L' ' ||
             clean.front() == L'.'))
     {
         clean.erase(clean.begin());
     }
 
     while (!clean.empty() &&
-        (clean.back() == L' ' ||
+           (clean.back() == L' ' ||
             clean.back() == L'.'))
     {
         clean.pop_back();
@@ -2666,8 +2744,8 @@ void Application::DrawSettingsContent()
         panelWidth - 36.0f,
         L"Current config",
         state_.configName.empty()
-        ? L"none"
-        : state_.configName.c_str());
+            ? L"none"
+            : state_.configName.c_str());
 
     StaticValue(
         panelX + 18.0f,
@@ -2678,15 +2756,15 @@ void Application::DrawSettingsContent()
 
     DrawTextLine(
         statusText_.empty()
-        ? L"Type a name, then choose an action."
-        : statusText_,
+            ? L"Type a name, then choose an action."
+            : statusText_,
         panelX + 18.0f,
         ContentY(195.0f),
         panelWidth - 36.0f,
         24.0f,
         statusText_.empty()
-        ? UI::Muted
-        : UI::AccentHover,
+            ? UI::Muted
+            : UI::AccentHover,
         smallFont_);
 
     Panel(
@@ -2779,9 +2857,9 @@ void Application::HandleScrollbarInput(
 
         const float fraction =
             available > 0.0f
-            ? (newTop - trackTop) /
-            available
-            : 0.0f;
+                ? (newTop - trackTop) /
+                  available
+                : 0.0f;
 
         scrollOffset_ =
             fraction *
@@ -2837,9 +2915,9 @@ void Application::DrawScrollbar(float contentHeight)
 
     const float scrollRatio =
         maximumScroll_ > 0.0f
-        ? scrollOffset_ /
-        maximumScroll_
-        : 0.0f;
+            ? scrollOffset_ /
+              maximumScroll_
+            : 0.0f;
 
     const float thumbTop =
         trackTop +
@@ -2859,8 +2937,8 @@ void Application::DrawScrollbar(float contentHeight)
         trackRight,
         thumbTop + thumbHeight,
         draggingScrollbar_
-        ? UI::AccentHover
-        : UI::Accent);
+            ? UI::AccentHover
+            : UI::Accent);
 
     HandleScrollbarInput(
         thumbTop,
@@ -2895,8 +2973,8 @@ void Application::Render()
 
     DrawScrollbar(
         settingsOpen_
-        ? 535.0f
-        : 685.0f);
+            ? 535.0f
+            : 685.0f);
 
     DrawDropdownOverlay();
     DrawColorPicker();
@@ -2980,19 +3058,21 @@ LRESULT Application::HandleMessage(
             hotkeyCaptureArmed_)
         {
             for (int virtualKey = 1;
-                virtualKey <= 255;
-                ++virtualKey)
+                 virtualKey <= 255;
+                 ++virtualKey)
             {
-                // Ignore the click used to select the hotkey field.
+                if (IsModifierKey(virtualKey))
+                    continue;
+
                 if (virtualKey == VK_LBUTTON &&
                     GetTickCount64() -
-                    hotkeyCaptureStartedAt_ < 220)
+                        hotkeyCaptureStartedAt_ < 220)
                 {
                     continue;
                 }
 
                 if ((GetAsyncKeyState(virtualKey) &
-                    0x0001) != 0)
+                     0x0001) != 0)
                 {
                     if (virtualKey == VK_ESCAPE ||
                         virtualKey == VK_BACK ||
@@ -3003,7 +3083,7 @@ LRESULT Application::HandleMessage(
                     else
                     {
                         *hotkeyCaptureTarget_ =
-                            virtualKey;
+                            EncodeHotkey(virtualKey);
                     }
 
                     hotkeyCaptureTarget_ = nullptr;
@@ -3048,7 +3128,7 @@ LRESULT Application::HandleMessage(
     case WM_RBUTTONDOWN:
         if (hotkeyCaptureTarget_ && hotkeyCaptureArmed_)
         {
-            *hotkeyCaptureTarget_ = VK_RBUTTON;
+            *hotkeyCaptureTarget_ = EncodeHotkey(VK_RBUTTON);
             hotkeyCaptureTarget_ = nullptr;
             hotkeyCaptureLabel_.clear();
             hotkeyCaptureArmed_ = false;
@@ -3060,7 +3140,7 @@ LRESULT Application::HandleMessage(
     case WM_MBUTTONDOWN:
         if (hotkeyCaptureTarget_ && hotkeyCaptureArmed_)
         {
-            *hotkeyCaptureTarget_ = VK_MBUTTON;
+            *hotkeyCaptureTarget_ = EncodeHotkey(VK_MBUTTON);
             hotkeyCaptureTarget_ = nullptr;
             hotkeyCaptureLabel_.clear();
             hotkeyCaptureArmed_ = false;
@@ -3073,9 +3153,10 @@ LRESULT Application::HandleMessage(
         if (hotkeyCaptureTarget_ && hotkeyCaptureArmed_)
         {
             *hotkeyCaptureTarget_ =
-                GET_XBUTTON_WPARAM(wParam) == XBUTTON1
-                ? VK_XBUTTON1
-                : VK_XBUTTON2;
+                EncodeHotkey(
+                    GET_XBUTTON_WPARAM(wParam) == XBUTTON1
+                        ? VK_XBUTTON1
+                        : VK_XBUTTON2);
 
             hotkeyCaptureTarget_ = nullptr;
             hotkeyCaptureLabel_.clear();
@@ -3118,7 +3199,7 @@ LRESULT Application::HandleMessage(
     case WM_LBUTTONDOWN:
         if (hotkeyCaptureTarget_ && hotkeyCaptureArmed_)
         {
-            *hotkeyCaptureTarget_ = VK_LBUTTON;
+            *hotkeyCaptureTarget_ = EncodeHotkey(VK_LBUTTON);
             hotkeyCaptureTarget_ = nullptr;
             hotkeyCaptureLabel_.clear();
             hotkeyCaptureArmed_ = false;
@@ -3168,9 +3249,9 @@ LRESULT Application::HandleMessage(
 
         if (!colorPickerOpen_ &&
             mouse_.y <=
-            UI::HeaderHeight &&
+                UI::HeaderHeight &&
             mouse_.x <
-            UI::Width - 58)
+                UI::Width - 58)
         {
             ReleaseCapture();
 
@@ -3230,16 +3311,16 @@ LRESULT Application::HandleMessage(
                 configNameFocused_ = false;
             }
             else if (character >= 32 &&
-                character != L'/' &&
-                character != L'\\' &&
-                character != L':' &&
-                character != L'*' &&
-                character != L'?' &&
-                character != L'"' &&
-                character != L'<' &&
-                character != L'>' &&
-                character != L'|' &&
-                state_.configName.size() < 24)
+                     character != L'/' &&
+                     character != L'\\' &&
+                     character != L':' &&
+                     character != L'*' &&
+                     character != L'?' &&
+                     character != L'"' &&
+                     character != L'<' &&
+                     character != L'>' &&
+                     character != L'|' &&
+                     state_.configName.size() < 24)
             {
                 state_.configName.push_back(
                     character);
@@ -3274,17 +3355,31 @@ LRESULT Application::HandleMessage(
     case WM_KEYDOWN:
         if (hotkeyCaptureTarget_)
         {
-            // Backspace/Delete/Escape clear the binding.
-            if (wParam == VK_ESCAPE ||
-                wParam == VK_BACK ||
-                wParam == VK_DELETE)
+            const int virtualKey =
+                static_cast<int>(wParam);
+
+            // Modifier keys are allowed as part of a combination.
+            // Do not finish capture until a non-modifier key is pressed.
+            if (IsModifierKey(virtualKey))
+            {
+                InvalidateRect(
+                    window_,
+                    nullptr,
+                    FALSE);
+
+                return 0;
+            }
+
+            if (virtualKey == VK_ESCAPE ||
+                virtualKey == VK_BACK ||
+                virtualKey == VK_DELETE)
             {
                 *hotkeyCaptureTarget_ = 0;
             }
             else
             {
                 *hotkeyCaptureTarget_ =
-                    static_cast<int>(wParam);
+                    EncodeHotkey(virtualKey);
             }
 
             hotkeyCaptureTarget_ = nullptr;
